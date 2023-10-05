@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>extractGPT.io</title>
+    <script src="https://cdn.jsdelivr.net/npm/typo-js@1.2.3/typo.min.js"></script>
+
+<style>
+        :root {
+            --primary-color: #6200EA;
+            --secondary-color: #EDEDED;
+            --shadow-color: rgba(98, 0, 234, 0.2);
+            --border-radius: 15px;
+        }
+
+        body {
+            font-family: "Fira Sans", Arial, sans-serif;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #ffffff;
+            padding-top: 2rem;
+        }
+
+        .container {
+            background-color: #ffffff;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0px 10px 20px var(--shadow-color);
+            width: 100%; 
+            max-width: 800px;
+            overflow-y: auto;
+            position: relative;
+        }
+
+        h1 {
+            color: var(--primary-color);
+            font-size: 40px;
+            margin-bottom: 20px;
+            text-shadow: 2px 2px 5px rgba(98, 0, 234, 0.5);
+        }
+
+        textarea {
+            width: 100%;
+            padding: 10px;
+            box-sizing: border-box;
+            border-radius: var(--border-radius);
+            border: 1px solid var(--shadow-color);
+            resize: vertical;
+        }
+
+        button {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: var(--border-radius);
+            cursor: pointer;
+            margin: 10px 0;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #5100B7;
+        }
+
+        .response-container {
+            margin-top: 20px;
+        }
+
+        .user-query, .chatgpt-response {
+            padding: 10px;
+            border-radius: var(--border-radius);
+            margin-bottom: 10px;
+        }
+
+        .user-query {
+            background-color: #FFFF99;
+        }
+
+        .chatgpt-response {
+            background-color: #ffffff;
+        }
+
+        #feedback {
+            color: var(--secondary-color);
+            margin-top: 10px;
+        }
+
+        @media screen and (max-width: 600px) {
+            h1 {
+                font-size: 32px;
+            }
+
+            .container {
+                padding: 20px;
+            }
+
+            textarea {
+                font-size: 14px;
+            }
+        }
+   </style>
+
+</head>
+<body>
+    <h1>extractGPT.io</h1>
+    <div class="container">
+        <h2>Chat Session</h2>
+        <textarea id="chatSession" rows="10" placeholder="Paste your chat session here..."></textarea>
+        <br>
+        <button id="extractBtn">Extract Responses</button>
+        <div class="response-container" id="output"></div>
+        <div id="feedback"></div>
+    </div>
+
+<script>
+
+    // Instantiate the English dictionary from typo-js
+    const dictionary = new Typo("en_US", false, false, { dictionaryPath: "dictionaries" });
+
+
+    function getArticulationScore(line) {
+        let score = 0;
+        
+        // Check for proper capitalization
+        if (line.charAt(0) === line.charAt(0).toUpperCase()) {
+            score++;
+        }
+
+        // Check for complete sentences
+        if ([".", "!", "?"].includes(line.charAt(line.length - 1))) {
+            score++;
+        }
+
+        // Check for sentence length
+        if (line.split(" ").length > 8) {
+            score++;
+        }
+
+        // Check for misspellings. Deduct score for each misspelled word.
+        const words = line.split(" ");
+        for (let word of words) {
+            if (!dictionary.check(word)) {
+                score--;
+            }
+        }
+
+        return score;
+    }
+
+    function isLikelyUserQuery(line) {
+        return getArticulationScore(line) < 2;  // Threshold
+    }
+
+    function removeUserQuery(chatBox, userQueryDiv) {
+        chatBox.removeChild(userQueryDiv);
+    }
+
+    function extractGptResponses() {
+        let chatContent = document.getElementById("chatSession").value.split("\n");
+        let chatPairs = [];
+        let currentUserQuery = [];
+        let currentChatGPT = [];
+        
+        for (let i = 0; i < chatContent.length; i++) {
+            let line = chatContent[i].trim();
+            if (line.startsWith("ChatGPT")) {
+                if (i > 0 && isLikelyUserQuery(chatContent[i - 1])) {
+                    currentChatGPT.push(line);
+                    for (let j = i + 1; j < chatContent.length; j++) {
+                        if (chatContent[j].startsWith("ChatGPT")) {
+                            i = j - 1;
+                            break;
+                        }
+                        currentChatGPT.push(chatContent[j]);
+                    }
+                } else {
+                    currentChatGPT.push(line);
+                }
+                
+                if (currentUserQuery.length > 0) {
+                    chatPairs.push([...currentUserQuery, ...currentChatGPT]);
+                    currentUserQuery = [];
+                    currentChatGPT = [];
+                }
+                
+            } else {
+                currentUserQuery.push(line);
+            }
+        }
+
+        if (currentUserQuery.length > 0 || currentChatGPT.length > 0) {
+            chatPairs.push([...currentUserQuery, ...currentChatGPT]);
+        }
+
+        let outputDiv = document.getElementById("output");
+        outputDiv.innerHTML = "";
+        chatPairs.forEach(pair => {
+            let chatBox = document.createElement("div");
+            chatBox.classList.add("chat-box");
+            let userQueryDiv = document.createElement("div");
+            let chatGPTDiv = document.createElement("div");
+            userQueryDiv.classList.add("user-query");
+            chatGPTDiv.classList.add("chatgpt-response");
+            
+            let splitIndex = pair.findIndex(line => line.startsWith("ChatGPT"));
+            let userQueryText = pair.slice(0, splitIndex).join("\n");
+            let chatGPTText = pair.slice(splitIndex).join("\n");
+            
+            userQueryDiv.innerText = userQueryText;
+            chatGPTDiv.innerText = chatGPTText;
+
+            userQueryDiv.style.backgroundColor = "yellow";
+
+            let removeButton = document.createElement("button");
+            removeButton.innerText = "Remove User Query";
+            removeButton.onclick = () => removeUserQuery(chatBox, userQueryDiv);
+            userQueryDiv.appendChild(removeButton);
+
+            let copyButton = document.createElement("button");
+            copyButton.innerText = "Copy ChatGPT Response to Clipboard";
+            copyButton.onclick = () => navigator.clipboard.writeText(chatGPTText);
+            chatGPTDiv.appendChild(copyButton);
+
+            chatBox.appendChild(userQueryDiv);
+            chatBox.appendChild(chatGPTDiv);
+            outputDiv.appendChild(chatBox);
+        });
+
+        setFeedback(outputDiv.childElementCount + " chat pairs extracted.");
+    }
+
+    function setFeedback(message) {
+        let feedbackDiv = document.getElementById("feedback");
+        if (feedbackDiv) {
+            feedbackDiv.textContent = message;
+        }
+}
+
+       // Now outside the function, put the DOMContentLoaded listener
+         document.addEventListener("DOMContentLoaded", function() {
+         document.getElementById("extractBtn").addEventListener("click", extractGptResponses);
+});
+    </script>
+</body>
+</html>
+
+
